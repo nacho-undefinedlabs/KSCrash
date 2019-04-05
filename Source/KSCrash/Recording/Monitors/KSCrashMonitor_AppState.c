@@ -41,6 +41,7 @@
 #include <string.h>
 #include <sys/time.h>
 #include <unistd.h>
+#include <pthread.h>
 
 
 // ============================================================================
@@ -70,6 +71,9 @@ static const char* g_stateFilePath;
 static KSCrash_AppState g_state;
 
 static volatile bool g_isEnabled = false;
+
+
+static pthread_mutex_t g_AppState_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 // ============================================================================
 #pragma mark - JSON Encoding -
@@ -353,6 +357,7 @@ bool kscrashstate_reset()
 {
     if(g_isEnabled)
     {
+        pthread_mutex_lock(&g_AppState_mutex);
         g_state.sessionsSinceLaunch = 1;
         g_state.activeDurationSinceLaunch = 0;
         g_state.backgroundDurationSinceLaunch = 0;
@@ -369,6 +374,7 @@ bool kscrashstate_reset()
         g_state.launchesSinceLastCrash++;
         g_state.sessionsSinceLastCrash++;
         g_state.applicationIsInForeground = true;
+        pthread_mutex_unlock(&g_AppState_mutex);
         
         return saveState(g_stateFilePath);
     }
@@ -379,6 +385,7 @@ void kscrashstate_notifyAppActive(const bool isActive)
 {
     if(g_isEnabled)
     {
+        pthread_mutex_lock(&g_AppState_mutex);
         g_state.applicationIsActive = isActive;
         if(isActive)
         {
@@ -390,6 +397,7 @@ void kscrashstate_notifyAppActive(const bool isActive)
             g_state.activeDurationSinceLaunch += duration;
             g_state.activeDurationSinceLastCrash += duration;
         }
+        pthread_mutex_unlock(&g_AppState_mutex);
     }
 }
 
@@ -397,6 +405,7 @@ void kscrashstate_notifyAppInForeground(const bool isInForeground)
 {
     if(g_isEnabled)
     {
+        pthread_mutex_lock(&g_AppState_mutex);
         const char* const stateFilePath = g_stateFilePath;
 
         g_state.applicationIsInForeground = isInForeground;
@@ -413,6 +422,7 @@ void kscrashstate_notifyAppInForeground(const bool isInForeground)
             g_state.appStateTransitionTime = getCurentTime();
             saveState(stateFilePath);
         }
+        pthread_mutex_unlock(&g_AppState_mutex);
     }
 }
 
@@ -420,11 +430,13 @@ void kscrashstate_notifyAppTerminate(void)
 {
     if(g_isEnabled)
     {
+        pthread_mutex_lock(&g_AppState_mutex);
         const char* const stateFilePath = g_stateFilePath;
 
         const double duration = timeSince(g_state.appStateTransitionTime);
         g_state.backgroundDurationSinceLastCrash += duration;
         saveState(stateFilePath);
+        pthread_mutex_unlock(&g_AppState_mutex);
     }
 }
 
@@ -432,10 +444,12 @@ void kscrashstate_notifyAppCrash(void)
 {
     if(g_isEnabled)
     {
+        pthread_mutex_lock(&g_AppState_mutex);
         const char* const stateFilePath = g_stateFilePath;
         updateAppState();
         g_state.crashedThisLaunch = true;
         saveState(stateFilePath);
+        pthread_mutex_unlock(&g_AppState_mutex);
     }
 }
 
@@ -466,6 +480,7 @@ static void addContextualInfoToEvent(KSCrash_MonitorContext* eventContext)
 {
     if(g_isEnabled)
     {
+        pthread_mutex_lock(&g_AppState_mutex);
         updateAppState();
         eventContext->AppState.activeDurationSinceLastCrash = g_state.activeDurationSinceLastCrash;
         eventContext->AppState.activeDurationSinceLaunch = g_state.activeDurationSinceLaunch;
@@ -479,6 +494,7 @@ static void addContextualInfoToEvent(KSCrash_MonitorContext* eventContext)
         eventContext->AppState.launchesSinceLastCrash = g_state.launchesSinceLastCrash;
         eventContext->AppState.sessionsSinceLastCrash = g_state.sessionsSinceLastCrash;
         eventContext->AppState.sessionsSinceLaunch = g_state.sessionsSinceLaunch;
+        pthread_mutex_unlock(&g_AppState_mutex);
     }
 }
 
